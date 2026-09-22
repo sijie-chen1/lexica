@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vercel/
+.env
+.env.*
+!.env.example
+.local-ai.json
+.local-ai-*.tmp
+.DS_Store
+*.log
+lexica-backup-*.json
+lexica-words-*.csv

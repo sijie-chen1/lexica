@@ -1,0 +1,11 @@
+.git
+node_modules
+.env
+.env.*
+.local-ai.json
+.local-ai-*.tmp
+.DS_Store
+*.log
+lexica-backup-*.json
+lexica-words-*.csv
+Restart Lexica.command

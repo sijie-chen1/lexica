@@ -14,7 +14,9 @@ Do not upload `.local-ai.json`, `.env`, `node_modules`, `dist` or vocabulary bac
 
 Choose Add New → Project, connect GitHub, and import this repository. If Vercel asks for GitHub repository access, limit it to this repository. Leave the root directory at the repository root and use the included Vite settings. The build runs `npm run build && npm test`; output is `dist`. The API routes become server functions automatically.
 
-Before deployment, add these variables in Vercel's project environment settings:
+For personal use, deploy without API environment variables. On the live site, open Settings → AI connection and enter your own key, address and model. Choose Connect and test. The connection is kept in the current tab’s session storage; use Disconnect and remove key to clear it.
+
+For an optional shared connection protected by an app password, add these variables in Vercel's project environment settings:
 
 | Name | Value |
 | --- | --- |

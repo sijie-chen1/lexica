@@ -27,7 +27,7 @@ function allow(key, max) {
 export async function handleAPI(request, env, clientId = 'local', fetcher = fetch) {
   const url = new URL(request.url);
   const path = url.pathname;
-  if (path === '/api/status' && request.method === 'GET') return json({ configured: Boolean(env.OPENAI_API_KEY && (env.APP_PASSWORD || env.LOCAL_DESKTOP === true)), authenticated: await authenticated(request, env), localConfigurable: env.LOCAL_DESKTOP === true, baseURL: env.OPENAI_BASE_URL || 'https://api.openai.com/v1', provider: 'OpenAI-compatible', model: env.OPENAI_MODEL || 'gpt-4o-mini' });
+  if (path === '/api/status' && request.method === 'GET') return json({ configured: Boolean(env.OPENAI_API_KEY && (env.APP_PASSWORD || env.LOCAL_DESKTOP === true)), authenticated: await authenticated(request, env), localConfigurable: env.LOCAL_DESKTOP === true, personalConfigurable: env.PERSONAL_AI_ENABLED === true, baseURL: env.OPENAI_BASE_URL || 'https://api.openai.com/v1', provider: 'OpenAI-compatible', model: env.OPENAI_MODEL || 'gpt-4o-mini' });
   if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
   if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'Expected JSON.' }, 415);
   const origin = request.headers.get('origin');
@@ -47,8 +47,27 @@ export async function handleAPI(request, env, clientId = 'local', fetcher = fetc
   }
   if (path === '/api/logout') return json({ ok: true }, 200, { 'Set-Cookie': `lexica_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}` });
   if (path !== '/api/ai') return json({ error: 'Not found.' }, 404);
-  if (!env.OPENAI_API_KEY || (!env.APP_PASSWORD && env.LOCAL_DESKTOP !== true)) return json({ error: 'AI is not connected yet. You can still add words manually and study offline.' }, 503);
-  if (!await authenticated(request, env)) return json({ error: 'Unlock AI in Settings with your app password.' }, 401);
+  let personal = false;
+  if (body.personalAI !== undefined) {
+    if (env.PERSONAL_AI_ENABLED !== true) return json({ error: 'Personal API connections are not available here.' }, 400);
+    const settings = body.personalAI;
+    if (!settings || typeof settings !== 'object' || typeof settings.apiKey !== 'string' || !settings.apiKey.trim() || settings.apiKey.length > 2048 || /[\r\n]/.test(settings.apiKey)) return json({ error: 'Enter a valid API key.' }, 400);
+    if (typeof settings.model !== 'string' || !settings.model.trim() || settings.model.length > 150 || /[\r\n]/.test(settings.model)) return json({ error: 'Enter a valid model name.' }, 400);
+    // Only OpenAI and the deployment owner's configured provider may receive
+    // requests. Never turn this public endpoint into an arbitrary URL proxy.
+    let base;
+    try {
+      const candidate = new URL(settings.baseURL);
+      if (candidate.protocol !== 'https:' || candidate.username || candidate.password || candidate.search || candidate.hash) throw new Error();
+      base = candidate.href.replace(/\/$/, '');
+      const approved = new URL(env.OPENAI_BASE_URL || 'https://api.openai.com/v1').href.replace(/\/$/, '');
+      if (base !== 'https://api.openai.com/v1' && base !== approved) throw new Error();
+    } catch { return json({ error: 'Use https://api.openai.com/v1, or the provider address configured by the site owner.' }, 400); }
+    env = { ...env, OPENAI_API_KEY: settings.apiKey.trim(), OPENAI_BASE_URL: base, OPENAI_MODEL: settings.model.trim() };
+    personal = true;
+  }
+  if (!personal && (!env.OPENAI_API_KEY || (!env.APP_PASSWORD && env.LOCAL_DESKTOP !== true))) return json({ error: 'Connect your API key in Settings. You can still add words manually and study offline.' }, 503);
+  if (!personal && !await authenticated(request, env)) return json({ error: 'Unlock AI in Settings with your app password.' }, 401);
   if (!allow(`ai:${clientId}`, 20) || !allow('global', 60) || active >= 4) return json({ error: 'Please wait a moment before trying again.' }, 429);
   const term = typeof body.term === 'string' ? body.term.trim() : '';
   if (!term || term.length > 200) return json({ error: 'Enter a word or short phrase (up to 200 characters).' }, 400);
@@ -76,7 +95,7 @@ export async function handleAPI(request, env, clientId = 'local', fetcher = fetc
     if (!base.startsWith('https://')) throw new Error('configuration');
     const response = await fetcher(`${base}/chat/completions`, { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: env.OPENAI_MODEL || 'gpt-4o-mini', messages: [{ role: 'system', content: system }, { role: 'user', content: input }], response_format: { type: 'json_object' }, max_completion_tokens: 800 }), signal: AbortSignal.timeout(45000) });
     if (!response.ok) {
-      const errors = { 401: 'The server’s OpenAI key needs to be checked.', 429: 'OpenAI’s usage or billing limit was reached. Check the API account and try again later.' };
+      const errors = { 401: 'The API key was not accepted. Check it in Settings.', 429: 'OpenAI’s usage or billing limit was reached. Check the API account and try again later.' };
       return json({ error: errors[response.status] || 'OpenAI is unavailable right now. Please try again.' }, response.status === 429 ? 429 : 502);
     }
     const completion = await response.json();

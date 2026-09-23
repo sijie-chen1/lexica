@@ -11,6 +11,7 @@ export function createHostedHandler(environment = process.env) {
       APP_PASSWORD: environment.APP_PASSWORD,
       COOKIE_SECURE: 'true',
       LOCAL_DESKTOP: false,
+      PERSONAL_AI_ENABLED: true,
     };
     // Vercel overwrites this trusted forwarding header at its edge.
     const client = request.headers.get('x-vercel-forwarded-for')?.split(',')[0].trim() || 'hosted';

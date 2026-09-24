@@ -40,9 +40,10 @@ test('failed provider response never exposes the key',async()=>{
 });
 
 test('browser connection is tested before saving, survives reads, is scoped to AI calls and disconnects',async()=>{
-  const oldFetch=globalThis.fetch, oldStorage=globalThis.sessionStorage;
+  const oldFetch=globalThis.fetch, oldStorage=globalThis.sessionStorage, oldLocal=globalThis.localStorage;
   const nav=Object.getOwnPropertyDescriptor(globalThis,'navigator');
-  const values=new Map();
+  const values=new Map(),persistent=new Map();
+  globalThis.localStorage={getItem:k=>persistent.get(k)??null,setItem:(k,v)=>persistent.set(k,v),removeItem:k=>persistent.delete(k)};
   globalThis.sessionStorage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{onLine:true}});
   try {
@@ -59,9 +60,14 @@ test('browser connection is tested before saving, survives reads, is scoped to A
     failed=true;await assert.rejects(connectPersonalAI({...own,apiKey:'bad-replacement'}),/Key rejected/);assert.deepEqual(readAIConnection(),own);
     clearAIConnection();assert.equal(readAIConnection(),null);assert.equal((await api('status')).authenticated,false);
     await api('logout',{}).catch(()=>{});assert.equal(requests.at(-1).body.personalAI,undefined);
-    globalThis.sessionStorage.setItem('lexica-personal-ai','broken');assert.equal(readAIConnection(),null);
+    globalThis.sessionStorage.setItem('lexica-personal-ai',JSON.stringify(own));assert.equal(readAIConnection(),null);
+    globalThis.localStorage.removeItem('lexica-personal-ai');assert.deepEqual(readAIConnection(),own);assert.equal(values.size,0);
+    // A new browser session retains the persistent key.
+    values.clear();assert.deepEqual(readAIConnection(),own);
+    globalThis.localStorage.setItem('lexica-personal-ai','broken');assert.equal(readAIConnection(),null);
   } finally {
     globalThis.fetch=oldFetch;
+    if(oldLocal===undefined)delete globalThis.localStorage;else globalThis.localStorage=oldLocal;
     if(oldStorage===undefined)delete globalThis.sessionStorage;else globalThis.sessionStorage=oldStorage;
     if(nav)Object.defineProperty(globalThis,'navigator',nav);else delete globalThis.navigator;
   }

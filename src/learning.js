@@ -10,7 +10,7 @@ export const learningStage = word => normalizeProgress(word.learning).stage;
 export const learningLabel = word => ({ mc: 'Multiple choice', sentence: 'Sentence ready', acquired: 'Acquired' }[learningStage(word)]);
 export function progressAfterAnswer(word, mode, result, day, scheduledCard) {
   const current = normalizeProgress(word.learning);
-  if (mode === 'mc') {
+  if (mode === 'mc' || mode === 'flashcard') {
     if (current.stage !== 'mc') throw new Error('This word is ready for a sentence review.');
     if (!['correct','guessed','incorrect'].includes(result)) throw new Error('Invalid multiple-choice answer.');
     if (result !== 'correct') return { ...current, stage:'mc', streak:0, days:[] };

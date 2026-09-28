@@ -1,3 +1,4 @@
+import { initialRemaining, initialAnswers } from './practice.js';
 import { normalizeProgress, progressAfterAnswer, answerRating, savedChoices, choiceSource, learningStage, learningLabel } from './learning.js';
 import { createEmptyCard, fsrs, State } from 'ts-fsrs';
 
@@ -6,7 +7,7 @@ export const localDay = (date = new Date()) => `${date.getFullYear()}-${String(d
 export const scheduler = (retention = 0.9) => fsrs({ request_retention: retention, maximum_interval: 365, enable_fuzz: false, enable_short_term: true, learning_steps: ['1m', '10m'], relearning_steps: ['10m'] });
 const validDate = value => (typeof value === 'string' || value instanceof Date) && Number.isFinite(new Date(value).getTime());
 export function newWord(term, definition, extra = {}) {
-  return { id: crypto.randomUUID(), term: term.trim(), definition: definition.trim(), exampleSentence: '', createdAt: new Date().toISOString(), studyHistory: [], learning: normalizeProgress(), card: createEmptyCard(), ...extra };
+  return { id: crypto.randomUUID(), term: term.trim(), definition: definition.trim(), exampleSentence: '', createdAt: new Date().toISOString(), studyHistory: [], exampleHistory: [], learning: normalizeProgress(), card: createEmptyCard(), ...extra };
 }
 export function normalizeWord(input) {
   if (!input || typeof input.term !== 'string' || !input.term.trim() || input.term.length > 200 || typeof input.definition !== 'string' || !input.definition.trim() || input.definition.length > 10000) throw new Error('Every word needs a term and a definition.');
@@ -17,6 +18,8 @@ export function normalizeWord(input) {
     learning: normalizeProgress(input.learning),
     studyHistory: Array.isArray(input.studyHistory) ? input.studyHistory.filter(h => h && validDate(h.review) && [1,2,3,4].includes(h.rating)) : [],
   });
+  if (input.initialStudy?.answers && Array.isArray(input.initialStudy.answers)) result.initialStudy = { answers: input.initialStudy.answers.filter(a => a && ['mc','flashcard'].includes(a.mode) && ['correct','guessed','incorrect'].includes(a.result) && validDate(a.review)).slice(0,3) };
+  result.exampleHistory = Array.isArray(input.exampleHistory) ? input.exampleHistory.filter(s=>typeof s==='string' && s.length<=4000).slice(-30) : [];
   const distractors = savedChoices(input);
   if (distractors) result.choiceCache = { source: choiceSource(input), distractors };
   if (input.card) {
@@ -89,14 +92,24 @@ export function newAllowance(words, dailyNew, now = new Date()) {
   return Math.max(0, dailyNew - studied);
 }
 export function studyQueue(words, settings, now = new Date()) {
-  return [...dueWords(words, now), ...words.filter(w => w.card.state === State.New).slice(0, newAllowance(words, settings.dailyNew, now))].map(w => w.id);
+  return [...words.filter(w=>initialRemaining(w)>0 && initialAnswers(w).length>0), ...dueWords(words, now).filter(w=>!initialAnswers(w).length || !initialRemaining(w)), ...words.filter(w => w.card.state === State.New && !initialAnswers(w).length).slice(0, newAllowance(words, settings.dailyNew, now))].map(w => w.id);
 }
-export const phaseLabel = word => learningStage(word) === 'mc' ? (word.card.state === 0 ? 'New · MC' : 'Learning · MC') : learningLabel(word);
+export const phaseLabel = word => initialRemaining(word) ? `Initial learning · ${3-initialRemaining(word)}/3` : learningStage(word) === 'mc' ? 'Mixed review' : learningLabel(word);
 export function validateSettings(value = {}) {
   return { dailyNew: [5,10,15,20].includes(value.dailyNew) ? value.dailyNew : 10, retention: [0.85,0.9,0.95].includes(value.retention) ? value.retention : 0.9, language: ['English','English + 中文'].includes(value.language) ? value.language : 'English' };
 }
 
 export function reviewAnswer(word, mode, result, retention = 0.9, now = new Date()) {
+  if (initialRemaining(word)) {
+    if (!['mc','flashcard'].includes(mode) || !['correct','guessed','incorrect'].includes(result)) throw new Error('Invalid initial learning answer.');
+    const answers=[...initialAnswers(word),{mode,result,review:now.toISOString()}];
+    if(answers.length<3) return {...word,initialStudy:{answers},studyHistory:[...word.studyHistory,{review:now.toISOString(),rating:answerRating(result),mode,result,initial:true}]};
+    const rating=answers.every(a=>a.result==='correct')?3:answers.some(a=>a.result==='incorrect')?1:2;
+    const {card,log}=fsrs({request_retention:retention,maximum_interval:365,enable_fuzz:false,enable_short_term:false}).next(word.card,now,rating);
+    // Weak initial recall gets a short revisit; all three encounters inform this first schedule.
+    if(rating<3) card.due=new Date(+now+(rating===1?10:60)*60000);
+    return {...word,card,initialStudy:{answers},studyHistory:[...word.studyHistory,{...JSON.parse(JSON.stringify(log)),mode,result,initial:true,initialRating:rating}]};
+  }
   const updated = rateWord(word, answerRating(result), retention, now);
   updated.learning = progressAfterAnswer(word, mode, result, localDay(now), updated.card);
   updated.studyHistory[updated.studyHistory.length-1] = { ...updated.studyHistory.at(-1), mode, result };

@@ -40,3 +40,13 @@ test('sentence test returns a validated verdict; malformed feedback cannot advan
  const response=await call('correct');assert.equal(response.status,200);assert.equal((await response.json()).verdict,'correct');
  assert.equal((await call('perhaps')).status,502);
 });
+test('new example requests exclude recent sentences and reject repeats or malformed replies',async()=>{
+ const cookie=await login();
+ const call=exampleSentence=>handleAPI(req('ai',{kind:'example',term:'nuance',definition:'A subtle difference.',exclude:['Notice the nuance.']},cookie),env,crypto.randomUUID(),async(url,options)=>{
+   const payload=JSON.parse(options.body);assert.ok(payload.messages[1].content.includes('Notice the nuance.'));
+   return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({exampleSentence})}}]});
+ });
+ assert.equal((await call('Her translation captured the nuance of his reply.')).status,200);
+ assert.equal((await call('NOTICE THE NUANCE!')).status,502);
+ assert.equal((await call('')).status,502);
+});
